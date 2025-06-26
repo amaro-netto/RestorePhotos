@@ -49,12 +49,23 @@ class PhotoProcessorApp:
         self.output_folder = tk.StringVar(value=str(Path.home() / "FT TRATADAS 2025")) # Pasta de destino padrão
         self.image_count = tk.IntVar(value=0)
         self.create_videos = tk.BooleanVar(value=True)
+        self.apply_watermark = tk.BooleanVar(value=True) # Variável para marca d'água opcional
         self.video_duration = tk.IntVar(value=10) # Duração padrão de 10 segundos
         self.processing_status = tk.StringVar(value="Aguardando...")
         self.processed_count = tk.IntVar(value=0)
         self.total_to_process = tk.IntVar(value=0)
 
         self.geolocator = Nominatim(user_agent="photo_processor_app") # Inicializa o geocodificador
+
+        # Referências para os widgets que terão seu estado modificado
+        self.btn_browse = None
+        self.chk_create_videos = None
+        self.chk_apply_watermark = None 
+        self.rb_10s = None
+        self.rb_15s = None
+        self.btn_alter_output = None
+        self.btn_process = None
+        self.btn_download = None
 
         self._create_widgets()
 
@@ -99,6 +110,13 @@ class PhotoProcessorApp:
         return tk.LabelFrame(self.master, text=text, bg=COLOR_FRAME, fg=COLOR_TEXT, font=FONT_SUBTITLE,
                              padx=10, pady=10, relief="solid", bd=1)
 
+    def _toggle_video_options(self):
+        """Controla a visibilidade das opções de duração do vídeo."""
+        if self.create_videos.get():
+            self.frame_video_options.pack(anchor="w", padx=20, pady=5)
+        else:
+            self.frame_video_options.pack_forget()
+
     def _setup_step1(self, parent_frame):
         """Configura os widgets para o Passo 1."""
         frame_content = tk.Frame(parent_frame, bg=COLOR_FRAME)
@@ -109,10 +127,10 @@ class PhotoProcessorApp:
         entry_folder = tk.Entry(frame_content, textvariable=self.input_folder, width=60, state="readonly", font=FONT_TEXT)
         entry_folder.pack(side="left", fill="x", expand=True)
 
-        btn_browse = tk.Button(frame_content, text="Procurar", command=self._browse_folder,
+        self.btn_browse = tk.Button(frame_content, text="Procurar", command=self._browse_folder,
                                bg=COLOR_BUTTON_BROWSE, fg=COLOR_TEXT, font=FONT_BUTTON,
                                relief="raised", bd=2, highlightbackground=COLOR_BUTTON_BROWSE)
-        btn_browse.pack(side="left", padx=10)
+        self.btn_browse.pack(side="left", padx=10)
 
         tk.Label(parent_frame, textvariable=self.image_count, bg=COLOR_FRAME, fg=COLOR_TEXT, font=FONT_TEXT).pack(anchor="w", pady=5)
         tk.Label(parent_frame, text="(Formatos aceitos: JPG, JPEG, PNG, BMP, TIFF)", bg=COLOR_FRAME, fg="#cccccc", font=("Arial", 8)).pack(anchor="w", pady=(0, 5))
@@ -123,10 +141,17 @@ class PhotoProcessorApp:
         frame_content.pack(fill="x")
 
         # Opção de criação de vídeos
-        chk_create_videos = tk.Checkbutton(frame_content, text="Criar Vídeos (Zoom Lento)", variable=self.create_videos,
+        self.chk_create_videos = tk.Checkbutton(frame_content, text="Criar Vídeos (Zoom Lento)", variable=self.create_videos,
                                            bg=COLOR_FRAME, fg=COLOR_TEXT, selectcolor=COLOR_FRAME,
                                            font=FONT_LABEL, command=self._toggle_video_options)
-        chk_create_videos.pack(anchor="w", pady=5)
+        self.chk_create_videos.pack(anchor="w", pady=5)
+
+        # Opção de aplicar marca d'água
+        self.chk_apply_watermark = tk.Checkbutton(frame_content, text="Aplicar Marca d'Água", variable=self.apply_watermark,
+                                                 bg=COLOR_FRAME, fg=COLOR_TEXT, selectcolor=COLOR_FRAME,
+                                                 font=FONT_LABEL)
+        self.chk_apply_watermark.pack(anchor="w", pady=5)
+
 
         # Opções de duração do vídeo (visíveis apenas se 'Criar Vídeos' estiver marcado)
         self.frame_video_options = tk.Frame(frame_content, bg=COLOR_FRAME)
@@ -134,13 +159,13 @@ class PhotoProcessorApp:
 
         tk.Label(self.frame_video_options, text="Duração do Vídeo:", bg=COLOR_FRAME, fg=COLOR_TEXT, font=FONT_LABEL).pack(side="left", padx=(0, 10))
 
-        rb_10s = tk.Radiobutton(self.frame_video_options, text="10 Segundos", variable=self.video_duration, value=10,
+        self.rb_10s = tk.Radiobutton(self.frame_video_options, text="10 Segundos", variable=self.video_duration, value=10,
                                 bg=COLOR_FRAME, fg=COLOR_TEXT, selectcolor=COLOR_FRAME, font=FONT_TEXT)
-        rb_10s.pack(side="left")
+        self.rb_10s.pack(side="left")
 
-        rb_15s = tk.Radiobutton(self.frame_video_options, text="15 Segundos", variable=self.video_duration, value=15,
+        self.rb_15s = tk.Radiobutton(self.frame_video_options, text="15 Segundos", variable=self.video_duration, value=15,
                                 bg=COLOR_FRAME, fg=COLOR_TEXT, selectcolor=COLOR_FRAME, font=FONT_TEXT, padx=10)
-        rb_15s.pack(side="left")
+        self.rb_15s.pack(side="left")
 
         self._toggle_video_options() # Esconde/mostra no início
 
@@ -153,33 +178,26 @@ class PhotoProcessorApp:
         entry_output_folder = tk.Entry(frame_output, textvariable=self.output_folder, width=60, font=FONT_TEXT)
         entry_output_folder.pack(side="left", fill="x", expand=True)
 
-        btn_alter_output = tk.Button(frame_output, text="Alterar", command=self._alter_output_folder,
+        self.btn_alter_output = tk.Button(frame_output, text="Alterar", command=self._alter_output_folder,
                                       bg=COLOR_BUTTON_ALTER, fg=COLOR_TEXT, font=FONT_BUTTON,
                                       relief="raised", bd=2, highlightbackground=COLOR_BUTTON_ALTER)
-        btn_alter_output.pack(side="left", padx=10)
-
-    def _toggle_video_options(self):
-        """Controla a visibilidade das opções de duração do vídeo."""
-        if self.create_videos.get():
-            self.frame_video_options.pack(anchor="w", padx=20, pady=5)
-        else:
-            self.frame_video_options.pack_forget()
+        self.btn_alter_output.pack(side="left", padx=10)
 
     def _setup_step3(self, parent_frame):
         """Configura os widgets para o Passo 3."""
-        btn_process = tk.Button(parent_frame, text="TRATAR FOTOS AGORA", command=self._start_processing_thread,
+        self.btn_process = tk.Button(parent_frame, text="TRATAR FOTOS AGORA", command=self._start_processing_thread,
                                 bg=COLOR_BUTTON_PROCESS, fg=COLOR_TEXT, font=FONT_BUTTON,
                                 relief="raised", bd=2, highlightbackground=COLOR_BUTTON_PROCESS)
-        btn_process.pack(pady=10)
+        self.btn_process.pack(pady=10)
 
     def _setup_step4(self, parent_frame):
         """Configura os widgets para o Passo 4."""
-        btn_download = tk.Button(parent_frame, text="ABRIR PASTA TRATADAS", command=self._open_output_folder,
+        self.btn_download = tk.Button(parent_frame, text="ABRIR PASTA TRATADAS", command=self._open_output_folder,
                                  bg=COLOR_BUTTON_DOWNLOAD, fg=COLOR_TEXT, font=FONT_BUTTON,
                                  relief="raised", bd=2, highlightbackground=COLOR_BUTTON_DOWNLOAD,
                                  state="disabled") # Desabilitado até o fim do processamento
-        btn_download.pack(pady=10)
-        self.btn_download = btn_download # Guarda a referência para habilitar depois
+        self.btn_download.pack(pady=10)
+        
 
     def _browse_folder(self):
         """Abre uma caixa de diálogo para selecionar a pasta de entrada e conta as imagens."""
@@ -225,12 +243,14 @@ class PhotoProcessorApp:
              return
 
         # Desabilita botões para evitar cliques múltiplos
-        self.master.children["!labelframe3"].children["!button"].config(state="disabled")
-        self.master.children["!labelframe1"].children["!frame"].children["!button"].config(state="disabled")
-        self.master.children["!labelframe2"].children["!frame"].children["!checkbutton"].config(state="disabled")
-        self.master.children["!labelframe2"].children["!frame"].children["!frame"].children["!radiobutton"].config(state="disabled")
-        self.master.children["!labelframe2"].children["!frame"].children["!frame"].children["!radiobutton2"].config(state="disabled")
-        self.master.children["!labelframe2"].children["!frame2"].children["!button"].config(state="disabled")
+        self.btn_process.config(state="disabled")
+        self.btn_browse.config(state="disabled")
+        self.chk_create_videos.config(state="disabled")
+        self.chk_apply_watermark.config(state="disabled") 
+        self.rb_10s.config(state="disabled")
+        self.rb_15s.config(state="disabled")
+        self.btn_alter_output.config(state="disabled")
+        self.btn_download.config(state="disabled")
 
 
         self.processing_status.set("Preparando para processar...")
@@ -277,60 +297,109 @@ class PhotoProcessorApp:
             self.master.update_idletasks() # Atualiza a UI imediatamente
 
             try:
-                # 1. Carregamento e Redimensionamento
+                # 1. Carregamento da imagem
                 img = Image.open(image_path).convert("RGB")
                 original_width, original_height = img.size
                 
-                # Calcula as novas dimensões mantendo a proporção
-                ratio = min(TARGET_RESOLUTION[0] / original_width, TARGET_RESOLUTION[1] / original_height)
-                new_width = int(original_width * ratio)
-                new_height = int(original_height * ratio)
+                # 2. Redimensionamento e Corte para preencher Full HD
+                # Calcula os fatores de escala para largura e altura
+                scale_width = TARGET_RESOLUTION[0] / original_width
+                scale_height = TARGET_RESOLUTION[1] / original_height
                 
-                img_resized = img.resize((new_width, new_height), Image.LANCZOS)
+                # Escolhe o maior fator de escala para que a imagem COBRIR a resolução alvo
+                scale_factor = max(scale_width, scale_height)
                 
-                # Cria um canvas preto e cola a imagem redimensionada no centro
-                final_img = Image.new("RGB", TARGET_RESOLUTION, (0, 0, 0)) # Fundo preto
-                x_offset = (TARGET_RESOLUTION[0] - new_width) // 2
-                y_offset = (TARGET_RESOLUTION[1] - new_height) // 2
-                final_img.paste(img_resized, (x_offset, y_offset))
+                # Calcula as novas dimensões da imagem após o escalonamento
+                img_scaled_width = int(original_width * scale_factor)
+                img_scaled_height = int(original_height * scale_factor)
+                
+                # Redimensiona a imagem para as dimensões escaladas (usando LANCZOS para alta qualidade)
+                img_resized = img.resize((img_scaled_width, img_scaled_height), Image.LANCZOS)
+                
+                # Calcula as coordenadas para cortar a imagem no centro para o tamanho alvo
+                left = (img_scaled_width - TARGET_RESOLUTION[0]) / 2
+                top = (img_scaled_height - TARGET_RESOLUTION[1]) / 2
+                right = (img_scaled_width + TARGET_RESOLUTION[0]) / 2
+                bottom = (img_scaled_height + TARGET_RESOLUTION[1]) / 2
+                
+                # Realiza o corte
+                processed_img_pil = img_resized.crop((left, top, right, bottom))
 
-                # 2. Melhoria de Qualidade (Nitidez, Contraste, Brilho)
-                enhancer = ImageEnhance.Sharpness(final_img)
-                final_img = enhancer.enhance(1.2) # Aumenta a nitidez
-                enhancer = ImageEnhance.Contrast(final_img)
-                final_img = enhancer.enhance(1.1) # Aumenta o contraste
-                enhancer = ImageEnhance.Brightness(final_img)
-                final_img = enhancer.enhance(1.05) # Aumenta um pouco o brilho
 
-                # 3. Extração de Metadados
+                # 3. Melhoria de Qualidade (similar ao Remini)
+                processed_img_pil = self._enhance_image_quality(processed_img_pil)
+
+
+                # 4. Extração de Metadados
                 metadata = self._extract_metadata(image_path)
 
-                # 4. Aplicação de Marca d'água
-                final_img = self._apply_watermark(final_img)
+                # 5. Aplicação de Marca d'água (AGORA OPCIONAL)
+                if self.apply_watermark.get():
+                    processed_img_pil = self._apply_watermark(processed_img_pil)
 
-                # 5. Organização de Arquivos e Nomenclatura
+                # 6. Organização de Arquivos e Nomenclatura
                 base_name = image_path.stem # Nome do arquivo original sem extensão
                 processed_name_prefix = f"{i + 1:03d}-{current_lot_count + 1:02d}"
 
-                # Nomeclatura: 001-25 - Local - Data - Nome
-                location_str = metadata["exif_data"]["location"]["city"] if metadata["exif_data"]["location"]["city"] else "SemLocal"
-                date_str = datetime.strptime(metadata["exif_data"]["datetime"].split("T")[0], "%Y-%m-%d").strftime("%d%m%Y")
+                # --- SANITIZAÇÃO DA STRING DE LOCALIZAÇÃO PARA O NOME DO ARQUIVO ---
+                location_for_filename = metadata["exif_data"]["location"]["city"]
+                if location_for_filename == "N/A":
+                    location_str = "SemLocal" # Substitui "N/A" por "SemLocal" no nome do arquivo para evitar '\'
+                else:
+                    # Remove caracteres inválidos do nome do arquivo (ex: \ / : * ? " < > |)
+                    # e substitui por um traço ou remove.
+                    # Adiciona espaços e hífens como caracteres permitidos, além de alfanuméricos
+                    location_str = ''.join(c if c.isalnum() or c in [' ', '-'] else '_' for c in location_for_filename)
+                    location_str = location_str.strip() # Remove espaços extras no início/fim
+                    if not location_str: # Se ficar vazio depois da sanitização, usa "SemLocal"
+                        location_str = "SemLocal"
+                # --- FIM DA SANITIZAÇÃO ---
+
+                # --- TRATAMENTO ROBUSTO DE DATA PARA O NOME DO ARQUIVO ---
+                date_str = "SemData" # Fallback padrão
+                exif_datetime_str = metadata["exif_data"]["datetime"]
+                
+                if exif_datetime_str != "N/A":
+                    try:
+                        # Tenta converter a data EXIF (já em ISO format)
+                        date_obj = datetime.fromisoformat(exif_datetime_str)
+                        date_str = date_obj.strftime("%d%m%Y")
+                    except ValueError as e:
+                        print(f"Aviso: Formato de data EXIF inesperado para {image_path.name} ({exif_datetime_str}): {e}. Tentando data de modificação do arquivo.")
+                        # Se falhar, tenta usar a data de modificação
+                        try:
+                            modification_timestamp = image_path.stat().st_mtime
+                            date_obj = datetime.fromtimestamp(modification_timestamp)
+                            date_str = date_obj.strftime("%d%m%Y")
+                        except Exception as date_error:
+                            print(f"Aviso: Não foi possível obter a data de modificação do arquivo {image_path.name}: {date_error}")
+                            # Se tudo falhar, mantém "SemData"
+                else:
+                    # Se a data EXIF já era N/A, tenta direto a data de modificação do arquivo
+                    try:
+                        modification_timestamp = image_path.stat().st_mtime
+                        date_obj = datetime.fromtimestamp(modification_timestamp)
+                        date_str = date_obj.strftime("%d%m%Y")
+                    except Exception as date_error:
+                        print(f"Aviso: Não foi possível obter a data de modificação do arquivo {image_path.name}: {date_error}")
+                        # Se tudo falhar, mantém "SemData"
+                # --- FIM DO TRATAMENTO DE DATA ---
                 
                 final_filename_stem = f"{processed_name_prefix} - {location_str} - {date_str} - {base_name}"
                 
                 # Salva a imagem processada
                 processed_image_path = current_lot_dir / f"{final_filename_stem}.jpg"
-                final_img.save(processed_image_path, "JPEG", quality=95, optimize=True)
+                processed_img_pil.save(processed_image_path, "JPEG", quality=95, optimize=True)
 
                 # Salva os metadados
                 metadata_path = current_lot_dir / f"{final_filename_stem}_metadata.json"
                 with open(metadata_path, 'w', encoding='utf-8') as f:
                     json.dump(metadata, f, indent=4, ensure_ascii=False)
 
-                # 6. Criação de Vídeos (se selecionado)
+                # 7. Criação de Vídeos (SEMPRE OPCIONAL)
                 if self.create_videos.get():
                     video_path = current_lot_dir / f"{final_filename_stem}.mp4"
-                    self._create_video_with_zoom(final_img, video_path, self.video_duration.get())
+                    self._create_video_with_zoom(processed_img_pil, video_path, self.video_duration.get())
                 
                 current_lot_count += 1
 
@@ -343,13 +412,72 @@ class PhotoProcessorApp:
 
         self._processing_complete()
 
+    def _enhance_image_quality(self, pil_image):
+        """
+        Aprimora a qualidade da imagem usando uma combinação de redução de ruído,
+        nitidez e ajustes de cor, para um efeito similar ao Remini.
+        Argumento:
+            pil_image (PIL.Image.Image): Imagem PIL a ser aprimorada.
+        Retorna:
+            PIL.Image.Image: Imagem PIL aprimorada.
+        """
+        # Converte a imagem PIL para formato OpenCV (BGR) para processamento
+        opencv_image = np.array(pil_image)
+        opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_RGB2BGR)
+
+        # 1. Redução de Ruído (Denoising)
+        # fastNlMeansDenoisingColored é bom para fotos coloridas e geralmente preserva detalhes.
+        # Ajuste h, hColor, templateWindowSize, searchWindowSize conforme necessário.
+        # Valores maiores de h e hColor resultam em mais denoising, mas podem borrar detalhes.
+        # Aumentamos h e hColor um pouco para um denoising mais agressivo.
+        denoised_image = cv2.fastNlMeansDenoisingColored(opencv_image, None, 15, 15, 7, 21)
+        
+        # 2. Melhoria de Contraste Local (CLAHE) para recuperar detalhes em áreas escuras/planas
+        # Converte para o espaço de cores LAB. O canal L (Luminosidade) é onde o CLAHE atua melhor.
+        lab_image = cv2.cvtColor(denoised_image, cv2.COLOR_BGR2LAB)
+        l_channel, a_channel, b_channel = cv2.split(lab_image) # Divide nos canais L, A, B
+
+        # Cria o objeto CLAHE (clipLimit controla o contraste, tileGridSize o tamanho da região)
+        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8,8)) # Ajuste clipLimit (2.0-4.0) e tileGridSize (8,8) ou (10,10)
+        cl_image = clahe.apply(l_channel) # Aplica CLAHE no canal L
+
+        # Combina os canais novamente e converte de volta para BGR
+        l_a_b_merged = cv2.merge([cl_image, a_channel, b_channel])
+        clahe_applied_image = cv2.cvtColor(l_a_b_merged, cv2.COLOR_LAB2BGR)
+
+        # 3. Melhoria de Nitidez (Unsharp Masking aprimorada)
+        # Cria uma versão borrada da imagem processada pelo CLAHE
+        blurred = cv2.GaussianBlur(clahe_applied_image, (0, 0), 5) # Aumentamos sigmaX para 5
+        # Subtrai a imagem borrada da original (denoised e CLAHE) para obter os detalhes de alta frequência
+        # Adiciona de volta com um peso maior para realçar a nitidez
+        sharpened_image = cv2.addWeighted(clahe_applied_image, 1.8, blurred, -0.8, 0) # Ajustamos os pesos (maior nitidez)
+
+        # 4. Ajustes Finais de Contraste, Brilho e Saturação (usando PIL ImageEnhance para controle mais fino)
+        # Converte a imagem OpenCV (BGR) de volta para PIL (RGB)
+        final_pil_image = Image.fromarray(cv2.cvtColor(sharpened_image, cv2.COLOR_BGR2RGB))
+        
+        # Aplica ajustes com Pillow ImageEnhance
+        enhancer = ImageEnhance.Brightness(final_pil_image)
+        final_pil_image = enhancer.enhance(1.08) # Aumenta o brilho ligeiramente (ex: 1.05-1.10)
+        
+        enhancer = ImageEnhance.Contrast(final_pil_image)
+        final_pil_image = enhancer.enhance(1.15) # Aumenta o contraste (ex: 1.10-1.20)
+        
+        enhancer = ImageEnhance.Color(final_pil_image)
+        final_pil_image = enhancer.enhance(1.15) # Aumenta a saturação (ex: 1.10-1.20)
+
+        # Opcional: Ajustar equilíbrio de cores (White Balance) pode ser mais complexo e requer detecção
+        # ou ajustes manuais, ou algoritmos de "auto white balance". Para este escopo, os ajustes acima são mais diretos.
+
+        return final_pil_image
+
     def _extract_metadata(self, image_path):
         """Extrai metadados EXIF, GPS e faz geocoding."""
         metadata = {
             "original_file": str(image_path),
             "processed_date": datetime.now().isoformat(),
             "exif_data": {
-                "datetime": "N/A",
+                "datetime": "N/A", # Inicializa como N/A
                 "location": {
                     "city": "N/A",
                     "state": "N/A",
@@ -365,18 +493,27 @@ class PhotoProcessorApp:
             with Image.open(image_path) as img:
                 exif_data = img._getexif()
                 if exif_data:
-                    # Decodifica as tags EXIF
                     exif = {
                         ExifTags.TAGS[k]: v
                         for k, v in exif_data.items()
                         if k in ExifTags.TAGS
                     }
 
-                    # Data/Hora
+                    # Tenta extrair e formatar a data EXIF para ISO format
+                    date_found = False
                     if "DateTimeOriginal" in exif:
-                        metadata["exif_data"]["datetime"] = datetime.strptime(exif["DateTimeOriginal"], "%Y:%m:%d %H:%M:%S").isoformat()
-                    elif "DateTime" in exif:
-                        metadata["exif_data"]["datetime"] = datetime.strptime(exif["DateTime"], "%Y:%m:%d %H:%M:%S").isoformat()
+                        try:
+                            metadata["exif_data"]["datetime"] = datetime.strptime(exif["DateTimeOriginal"], "%Y:%m:%d %H:%M:%S").isoformat()
+                            date_found = True
+                        except ValueError:
+                            pass
+                    
+                    if not date_found and "DateTime" in exif:
+                        try:
+                            metadata["exif_data"]["datetime"] = datetime.strptime(exif["DateTime"], "%Y:%m:%d %H:%M:%S").isoformat()
+                            date_found = True
+                        except ValueError:
+                            pass
 
                     # Informações da Câmera
                     if "Make" in exif and "Model" in exif:
@@ -400,7 +537,7 @@ class PhotoProcessorApp:
                                 decimal_lat = -decimal_lat
                             if lon_ref != 'E':
                                 decimal_lon = -decimal_lon
-
+                                
                             metadata["exif_data"]["location"]["coordinates"] = [decimal_lat, decimal_lon]
 
                             # Geocoding reverso
@@ -415,14 +552,14 @@ class PhotoProcessorApp:
                                     metadata["exif_data"]["location"]["postcode"] = address_details.get("postcode", "N/A")
 
                                     # Detecção de Manaus
-                                    if "manaus" in metadata["exif_data"]["location"]["city"].lower():
+                                    if metadata["exif_data"]["location"]["city"] and "manaus" in metadata["exif_data"]["location"]["city"].lower():
                                         metadata["exif_data"]["location"]["city"] = "Manaus" # Padroniza para "Manaus"
-                            except (GeocoderTimedOut, GeocoderServiceError, requests.exceptions.RequestException) as geocoding_err:
-                                print(f"Erro no geocoding: {geocoding_err}")
+                            except (GeocoderTimedOut, GeocoderServiceError) as geocoding_err:
+                                print(f"Erro no geocoding para {image_path.name}: {geocoding_err}")
                                 metadata["exif_data"]["location"]["city"] = "SemLocal" # Define como 'SemLocal' em caso de erro
 
         except Exception as e:
-            print(f"Erro ao extrair EXIF ou geocoding para {image_path.name}: {e}")
+            print(f"Erro geral ao extrair metadados ou abrir {image_path.name}: {e}")
 
         return metadata
 
@@ -453,7 +590,9 @@ class PhotoProcessorApp:
             font = ImageFont.load_default() # Fallback para fonte padrão
             print("Aviso: Fonte Arial não encontrada, usando fonte padrão.")
 
-        text_width, text_height = draw.textbbox((0, 0), WATERMARK_TEXT, font=font)[2:] # getbbox returns (left, top, right, bottom)
+        text_bbox = draw.textbbox((0, 0), WATERMARK_TEXT, font=font)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
         
         # Posição: canto inferior direito com padding
         padding = 20
@@ -523,12 +662,13 @@ class PhotoProcessorApp:
         self.btn_download.config(state="normal")
         
         # Habilita novamente os botões de controle de UI
-        self.master.children["!labelframe3"].children["!button"].config(state="normal")
-        self.master.children["!labelframe1"].children["!frame"].children["!button"].config(state="normal")
-        self.master.children["!labelframe2"].children["!frame"].children["!checkbutton"].config(state="normal")
-        self.master.children["!labelframe2"].children["!frame"].children["!frame"].children["!radiobutton"].config(state="normal")
-        self.master.children["!labelframe2"].children["!frame"].children["!frame"].children["!radiobutton2"].config(state="normal")
-        self.master.children["!labelframe2"].children["!frame2"].children["!button"].config(state="normal")
+        self.btn_process.config(state="normal")
+        self.btn_browse.config(state="normal")
+        self.chk_create_videos.config(state="normal")
+        self.chk_apply_watermark.config(state="normal") # Habilita o checkbox da marca d'água
+        self.rb_10s.config(state="normal")
+        self.rb_15s.config(state="normal")
+        self.btn_alter_output.config(state="normal")
 
         # Exibe o popup de confirmação
         messagebox.showinfo("Sucesso!", "Todas as fotos foram processadas e organizadas com sucesso!")
