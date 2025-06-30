@@ -20,6 +20,7 @@ COLOR_BUTTON_BROWSE = "#3498db"
 COLOR_BUTTON_ALTER = "#9b59b6"
 COLOR_BUTTON_PROCESS = "#e74c3c"
 COLOR_BUTTON_DOWNLOAD = "#27ae60"
+COLOR_BUTTON_DEMO_VIDEO = "#f39c12" # Nova cor para o botão de vídeo demonstrativo
 
 FONT_TITLE = ("Arial", 20, "bold")
 FONT_SUBTITLE = ("Arial", 12)
@@ -29,17 +30,15 @@ FONT_BUTTON = ("Arial", 11, "bold") # Ajuste para um tamanho bom nos botões
 
 # Constantes para processamento
 TARGET_RESOLUTION = (1920, 1080)
-WATERMARK_TEXT = "@tioadaotvnafesta"
-VIDEO_FPS = 30
-VIDEO_CODEC = "mp4v" # Usando mp4v para maior compatibilidade
-VIDEO_ZOOM_PERCENTAGE = 0.20 # 20% de ampliação
+DEFAULT_WATERMARK_TEXT = "@tioadaotvnafesta" # Manter como fallback ou para referência
 IMAGES_PER_LOT = 50
+DEMO_VIDEO_DURATION_SECONDS = 5 # Duração do vídeo demonstrativo
 
 # --- Classe Principal da Aplicação ---
 class PhotoProcessorApp:
     def __init__(self, master):
         self.master = master
-        master.title("CodeBuddy - Processador de Fotos")
+        master.title("CodeBuddy - Aplicador de Marca d'Água")
         master.geometry("800x600")
         master.resizable(False, False) # Janela não redimensionável
         master.configure(bg=COLOR_BACKGROUND)
@@ -47,25 +46,24 @@ class PhotoProcessorApp:
         # Variáveis de controle
         self.input_folder = tk.StringVar()
         self.output_folder = tk.StringVar(value=str(Path.home() / "FT TRATADAS 2025")) # Pasta de destino padrão
+        self.watermark_image_path = tk.StringVar() # Caminho para a imagem PNG da marca d'água
         self.image_count = tk.IntVar(value=0)
-        self.create_videos = tk.BooleanVar(value=True)
-        self.apply_watermark = tk.BooleanVar(value=True) # Variável para marca d'água opcional
-        self.video_duration = tk.IntVar(value=10) # Duração padrão de 10 segundos
+        self.apply_watermark = tk.BooleanVar(value=True) # Opção para aplicar ou não a marca d'água
         self.processing_status = tk.StringVar(value="Aguardando...")
         self.processed_count = tk.IntVar(value=0)
         self.total_to_process = tk.IntVar(value=0)
+        self.first_processed_image_path = None # Para o vídeo demonstrativo
 
-        self.geolocator = Nominatim(user_agent="photo_processor_app") # Inicializa o geocodificador
+        self.geolocator = Nominatim(user_agent="photo_watermark_app") # Inicializa o geocodificador
 
         # Referências para os widgets que terão seu estado modificado
         self.btn_browse = None
-        self.chk_create_videos = None
+        self.btn_browse_watermark = None # Novo botão para a marca d'água
         self.chk_apply_watermark = None 
-        self.rb_10s = None
-        self.rb_15s = None
         self.btn_alter_output = None
         self.btn_process = None
         self.btn_download = None
+        self.btn_generate_demo_video = None # Novo botão para o vídeo demonstrativo
 
         self._create_widgets()
 
@@ -73,18 +71,18 @@ class PhotoProcessorApp:
         """Cria e organiza todos os widgets da interface gráfica."""
 
         # Título principal
-        tk.Label(self.master, text="Processador de Fotos em Massa", bg=COLOR_BACKGROUND, fg=COLOR_TEXT,
+        tk.Label(self.master, text="Aplicador de Marca d'Água em Fotos", bg=COLOR_BACKGROUND, fg=COLOR_TEXT,
                  font=FONT_TITLE).pack(pady=10)
 
         # --- Seções da Interface (LabelFrames) ---
 
-        # Passo 1: Seleção de Pasta
-        self.frame_step1 = self._create_labeled_frame("PASSO 1: Selecione a Pasta de Origem")
+        # Passo 1: Seleção de Pasta de Fotos
+        self.frame_step1 = self._create_labeled_frame("PASSO 1: Selecione a Pasta de Origem das Fotos")
         self.frame_step1.pack(fill="x", padx=20, pady=5)
         self._setup_step1(self.frame_step1)
 
-        # Passo 2: Configurações
-        self.frame_step2 = self._create_labeled_frame("PASSO 2: Configure as Opções")
+        # Passo 2: Configurações (Marca d'Água e Pasta de Destino)
+        self.frame_step2 = self._create_labeled_frame("PASSO 2: Configure a Marca d'Água e Destino")
         self.frame_step2.pack(fill="x", padx=20, pady=5)
         self._setup_step2(self.frame_step2)
 
@@ -110,15 +108,8 @@ class PhotoProcessorApp:
         return tk.LabelFrame(self.master, text=text, bg=COLOR_FRAME, fg=COLOR_TEXT, font=FONT_SUBTITLE,
                              padx=10, pady=10, relief="solid", bd=1)
 
-    def _toggle_video_options(self):
-        """Controla a visibilidade das opções de duração do vídeo."""
-        if self.create_videos.get():
-            self.frame_video_options.pack(anchor="w", padx=20, pady=5)
-        else:
-            self.frame_video_options.pack_forget()
-
     def _setup_step1(self, parent_frame):
-        """Configura os widgets para o Passo 1."""
+        """Configura os widgets para o Passo 1 (Seleção de Pasta de Fotos)."""
         frame_content = tk.Frame(parent_frame, bg=COLOR_FRAME)
         frame_content.pack(fill="x")
 
@@ -127,7 +118,7 @@ class PhotoProcessorApp:
         entry_folder = tk.Entry(frame_content, textvariable=self.input_folder, width=60, state="readonly", font=FONT_TEXT)
         entry_folder.pack(side="left", fill="x", expand=True)
 
-        self.btn_browse = tk.Button(frame_content, text="Procurar", command=self._browse_folder,
+        self.btn_browse = tk.Button(frame_content, text="Procurar", command=self._browse_photos_folder,
                                bg=COLOR_BUTTON_BROWSE, fg=COLOR_TEXT, font=FONT_BUTTON,
                                relief="raised", bd=2, highlightbackground=COLOR_BUTTON_BROWSE)
         self.btn_browse.pack(side="left", padx=10)
@@ -136,38 +127,27 @@ class PhotoProcessorApp:
         tk.Label(parent_frame, text="(Formatos aceitos: JPG, JPEG, PNG, BMP, TIFF)", bg=COLOR_FRAME, fg="#cccccc", font=("Arial", 8)).pack(anchor="w", pady=(0, 5))
 
     def _setup_step2(self, parent_frame):
-        """Configura os widgets para o Passo 2."""
+        """Configura os widgets para o Passo 2 (Marca d'Água e Pasta de Destino)."""
         frame_content = tk.Frame(parent_frame, bg=COLOR_FRAME)
         frame_content.pack(fill="x")
 
-        # Opção de criação de vídeos
-        self.chk_create_videos = tk.Checkbutton(frame_content, text="Criar Vídeos (Zoom Lento)", variable=self.create_videos,
-                                           bg=COLOR_FRAME, fg=COLOR_TEXT, selectcolor=COLOR_FRAME,
-                                           font=FONT_LABEL, command=self._toggle_video_options)
-        self.chk_create_videos.pack(anchor="w", pady=5)
-
-        # Opção de aplicar marca d'água
+        # Opção de aplicar marca d'água (checkbox)
         self.chk_apply_watermark = tk.Checkbutton(frame_content, text="Aplicar Marca d'Água", variable=self.apply_watermark,
                                                  bg=COLOR_FRAME, fg=COLOR_TEXT, selectcolor=COLOR_FRAME,
                                                  font=FONT_LABEL)
         self.chk_apply_watermark.pack(anchor="w", pady=5)
 
+        # Seleção da imagem da marca d'água (PNG)
+        frame_watermark = tk.Frame(frame_content, bg=COLOR_FRAME)
+        frame_watermark.pack(fill="x", pady=5)
 
-        # Opções de duração do vídeo (visíveis apenas se 'Criar Vídeos' estiver marcado)
-        self.frame_video_options = tk.Frame(frame_content, bg=COLOR_FRAME)
-        self.frame_video_options.pack(anchor="w", padx=20, pady=5)
-
-        tk.Label(self.frame_video_options, text="Duração do Vídeo:", bg=COLOR_FRAME, fg=COLOR_TEXT, font=FONT_LABEL).pack(side="left", padx=(0, 10))
-
-        self.rb_10s = tk.Radiobutton(self.frame_video_options, text="10 Segundos", variable=self.video_duration, value=10,
-                                bg=COLOR_FRAME, fg=COLOR_TEXT, selectcolor=COLOR_FRAME, font=FONT_TEXT)
-        self.rb_10s.pack(side="left")
-
-        self.rb_15s = tk.Radiobutton(self.frame_video_options, text="15 Segundos", variable=self.video_duration, value=15,
-                                bg=COLOR_FRAME, fg=COLOR_TEXT, selectcolor=COLOR_FRAME, font=FONT_TEXT, padx=10)
-        self.rb_15s.pack(side="left")
-
-        self._toggle_video_options() # Esconde/mostra no início
+        tk.Label(frame_watermark, text="Marca d'Água (PNG):", bg=COLOR_FRAME, fg=COLOR_TEXT, font=FONT_LABEL).pack(side="left", padx=(0, 10))
+        entry_watermark = tk.Entry(frame_watermark, textvariable=self.watermark_image_path, width=50, state="readonly", font=FONT_TEXT)
+        entry_watermark.pack(side="left", fill="x", expand=True)
+        self.btn_browse_watermark = tk.Button(frame_watermark, text="Procurar PNG", command=self._browse_watermark_file,
+                                               bg=COLOR_BUTTON_BROWSE, fg=COLOR_TEXT, font=FONT_BUTTON,
+                                               relief="raised", bd=2, highlightbackground=COLOR_BUTTON_BROWSE)
+        self.btn_browse_watermark.pack(side="left", padx=10)
 
         # Pasta de destino
         frame_output = tk.Frame(parent_frame, bg=COLOR_FRAME)
@@ -184,23 +164,32 @@ class PhotoProcessorApp:
         self.btn_alter_output.pack(side="left", padx=10)
 
     def _setup_step3(self, parent_frame):
-        """Configura os widgets para o Passo 3."""
-        self.btn_process = tk.Button(parent_frame, text="TRATAR FOTOS AGORA", command=self._start_processing_thread,
+        """Configura os widgets para o Passo 3 (Iniciar Processamento)."""
+        self.btn_process = tk.Button(parent_frame, text="APLICAR MARCA D'ÁGUA AGORA", command=self._start_processing_thread,
                                 bg=COLOR_BUTTON_PROCESS, fg=COLOR_TEXT, font=FONT_BUTTON,
                                 relief="raised", bd=2, highlightbackground=COLOR_BUTTON_PROCESS)
         self.btn_process.pack(pady=10)
 
     def _setup_step4(self, parent_frame):
-        """Configura os widgets para o Passo 4."""
-        self.btn_download = tk.Button(parent_frame, text="ABRIR PASTA TRATADAS", command=self._open_output_folder,
+        """Configura os widgets para o Passo 4 (Resultados Finais)."""
+        btn_frame = tk.Frame(parent_frame, bg=COLOR_FRAME)
+        btn_frame.pack(pady=10)
+
+        self.btn_download = tk.Button(btn_frame, text="ABRIR PASTA TRATADAS", command=self._open_output_folder,
                                  bg=COLOR_BUTTON_DOWNLOAD, fg=COLOR_TEXT, font=FONT_BUTTON,
                                  relief="raised", bd=2, highlightbackground=COLOR_BUTTON_DOWNLOAD,
                                  state="disabled") # Desabilitado até o fim do processamento
-        self.btn_download.pack(pady=10)
+        self.btn_download.pack(side="left", padx=10)
+
+        self.btn_generate_demo_video = tk.Button(btn_frame, text="GERAR VÍDEO DEMONSTRATIVO", command=self._generate_demo_video,
+                                            bg=COLOR_BUTTON_DEMO_VIDEO, fg=COLOR_TEXT, font=FONT_BUTTON,
+                                            relief="raised", bd=2, highlightbackground=COLOR_BUTTON_DEMO_VIDEO,
+                                            state="disabled") # Desabilitado até o processamento
+        self.btn_generate_demo_video.pack(side="left", padx=10)
         
 
-    def _browse_folder(self):
-        """Abre uma caixa de diálogo para selecionar a pasta de entrada e conta as imagens."""
+    def _browse_photos_folder(self):
+        """Abre uma caixa de diálogo para selecionar a pasta de entrada das fotos e conta as imagens."""
         folder_selected = filedialog.askdirectory()
         if folder_selected:
             self.input_folder.set(folder_selected)
@@ -208,6 +197,14 @@ class PhotoProcessorApp:
         else:
             self.input_folder.set("")
             self.image_count.set(0)
+
+    def _browse_watermark_file(self):
+        """Abre uma caixa de diálogo para selecionar o arquivo PNG da marca d'água."""
+        file_selected = filedialog.askopenfilename(filetypes=[("PNG files", "*.png")])
+        if file_selected:
+            self.watermark_image_path.set(file_selected)
+        else:
+            self.watermark_image_path.set("")
 
     def _count_images_in_folder(self, folder_path):
         """Conta o número de imagens suportadas na pasta."""
@@ -230,11 +227,16 @@ class PhotoProcessorApp:
         """Inicia o processamento em uma nova thread para não travar a UI."""
         input_path = self.input_folder.get()
         output_path = self.output_folder.get()
+        watermark_path = self.watermark_image_path.get()
 
         if not input_path or not os.path.isdir(input_path):
-            messagebox.showwarning("Erro", "Por favor, selecione uma pasta de entrada válida.")
+            messagebox.showwarning("Erro", "Por favor, selecione uma pasta de entrada válida para as fotos.")
             return
         
+        if self.apply_watermark.get() and (not watermark_path or not os.path.isfile(watermark_path)):
+            messagebox.showwarning("Erro", "Por favor, selecione um arquivo PNG válido para a marca d'água ou desative a opção.")
+            return
+
         # Cria a pasta de saída se não existir
         Path(output_path).mkdir(parents=True, exist_ok=True)
         
@@ -245,27 +247,28 @@ class PhotoProcessorApp:
         # Desabilita botões para evitar cliques múltiplos
         self.btn_process.config(state="disabled")
         self.btn_browse.config(state="disabled")
-        self.chk_create_videos.config(state="disabled")
+        self.btn_browse_watermark.config(state="disabled")
         self.chk_apply_watermark.config(state="disabled") 
-        self.rb_10s.config(state="disabled")
-        self.rb_15s.config(state="disabled")
         self.btn_alter_output.config(state="disabled")
         self.btn_download.config(state="disabled")
+        self.btn_generate_demo_video.config(state="disabled")
 
 
-        self.processing_status.set("Preparando para processar...")
+        self.processing_status.set("Preparando para aplicar marca d'água...")
         self.progressbar.config(mode="indeterminate")
         self.progressbar.start()
         self.processed_count.set(0) # Zera contador de processados
+        self.first_processed_image_path = None # Reseta o caminho da primeira imagem processada
 
         # Inicia a thread de processamento
         process_thread = threading.Thread(target=self._process_photos)
         process_thread.start()
 
     def _process_photos(self):
-        """Lógica principal de processamento das fotos."""
+        """Lógica principal de processamento das fotos (redimensionamento e aplicação de marca d'água)."""
         input_dir = Path(self.input_folder.get())
         output_base_dir = Path(self.output_folder.get())
+        watermark_path = self.watermark_image_path.get()
         
         # Define a pasta base "FT TRATADAS 2025" dentro da pasta de destino
         processed_base_dir = output_base_dir / "FT TRATADAS 2025"
@@ -325,19 +328,14 @@ class PhotoProcessorApp:
                 # Realiza o corte
                 processed_img_pil = img_resized.crop((left, top, right, bottom))
 
-
-                # 3. Melhoria de Qualidade (similar ao Remini)
-                processed_img_pil = self._enhance_image_quality(processed_img_pil)
-
-
-                # 4. Extração de Metadados
+                # 3. Extração de Metadados
                 metadata = self._extract_metadata(image_path)
 
-                # 5. Aplicação de Marca d'água (AGORA OPCIONAL)
-                if self.apply_watermark.get():
-                    processed_img_pil = self._apply_watermark(processed_img_pil)
+                # 4. Aplicação de Marca d'água (AGORA OPCIONAL E COM IMAGEM PNG)
+                if self.apply_watermark.get() and watermark_path:
+                    processed_img_pil = self._apply_image_watermark(processed_img_pil, watermark_path)
 
-                # 6. Organização de Arquivos e Nomenclatura
+                # 5. Organização de Arquivos e Nomenclatura
                 base_name = image_path.stem # Nome do arquivo original sem extensão
                 processed_name_prefix = f"{i + 1:03d}-{current_lot_count + 1:02d}"
 
@@ -391,15 +389,14 @@ class PhotoProcessorApp:
                 processed_image_path = current_lot_dir / f"{final_filename_stem}.jpg"
                 processed_img_pil.save(processed_image_path, "JPEG", quality=95, optimize=True)
 
+                # Armazena o caminho da primeira imagem processada para o vídeo demonstrativo
+                if self.first_processed_image_path is None:
+                    self.first_processed_image_path = processed_image_path
+
                 # Salva os metadados
                 metadata_path = current_lot_dir / f"{final_filename_stem}_metadata.json"
                 with open(metadata_path, 'w', encoding='utf-8') as f:
                     json.dump(metadata, f, indent=4, ensure_ascii=False)
-
-                # 7. Criação de Vídeos (SEMPRE OPCIONAL)
-                if self.create_videos.get():
-                    video_path = current_lot_dir / f"{final_filename_stem}.mp4"
-                    self._create_video_with_zoom(processed_img_pil, video_path, self.video_duration.get())
                 
                 current_lot_count += 1
 
@@ -412,64 +409,51 @@ class PhotoProcessorApp:
 
         self._processing_complete()
 
-    def _enhance_image_quality(self, pil_image):
+    def _apply_image_watermark(self, base_image_pil, watermark_image_path):
         """
-        Aprimora a qualidade da imagem usando uma combinação de redução de ruído,
-        nitidez e ajustes de cor, para um efeito similar ao Remini.
-        Argumento:
-            pil_image (PIL.Image.Image): Imagem PIL a ser aprimorada.
-        Retorna:
-            PIL.Image.Image: Imagem PIL aprimorada.
+        Aplica uma imagem PNG como marca d'água na imagem base.
+        A marca d'água será redimensionada para 20% da largura da imagem base
+        e posicionada no canto inferior direito.
         """
-        # Converte a imagem PIL para formato OpenCV (BGR) para processamento
-        opencv_image = np.array(pil_image)
-        opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_RGB2BGR)
+        try:
+            watermark = Image.open(watermark_image_path)
+            
+            # Redimensiona a marca d'água para 20% da largura da imagem base, mantendo proporção
+            base_width, base_height = base_image_pil.size
+            watermark_width, watermark_height = watermark.size
+            
+            target_watermark_width = int(base_width * 0.20) # 20% da largura da imagem base
+            
+            # Calcula a nova altura mantendo a proporção
+            if watermark_width > 0: # Evita divisão por zero
+                watermark_ratio = watermark_height / watermark_width
+                target_watermark_height = int(target_watermark_width * watermark_ratio)
+            else:
+                target_watermark_height = watermark_height # Mantém a altura se a largura for zero, embora improvável
 
-        # 1. Redução de Ruído (Denoising)
-        # fastNlMeansDenoisingColored é bom para fotos coloridas e geralmente preserva detalhes.
-        # Ajuste h, hColor, templateWindowSize, searchWindowSize conforme necessário.
-        # Valores maiores de h e hColor resultam em mais denoising, mas podem borrar detalhes.
-        # Aumentamos h e hColor um pouco para um denoising mais agressivo.
-        denoised_image = cv2.fastNlMeansDenoisingColored(opencv_image, None, 15, 15, 7, 21)
-        
-        # 2. Melhoria de Contraste Local (CLAHE) para recuperar detalhes em áreas escuras/planas
-        # Converte para o espaço de cores LAB. O canal L (Luminosidade) é onde o CLAHE atua melhor.
-        lab_image = cv2.cvtColor(denoised_image, cv2.COLOR_BGR2LAB)
-        l_channel, a_channel, b_channel = cv2.split(lab_image) # Divide nos canais L, A, B
+            watermark = watermark.resize((target_watermark_width, target_watermark_height), Image.LANCZOS)
 
-        # Cria o objeto CLAHE (clipLimit controla o contraste, tileGridSize o tamanho da região)
-        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8,8)) # Ajuste clipLimit (2.0-4.0) e tileGridSize (8,8) ou (10,10)
-        cl_image = clahe.apply(l_channel) # Aplica CLAHE no canal L
+            # Garante que a marca d'água tenha canal alfa para transparência
+            if watermark.mode != 'RGBA':
+                watermark = watermark.convert('RGBA')
 
-        # Combina os canais novamente e converte de volta para BGR
-        l_a_b_merged = cv2.merge([cl_image, a_channel, b_channel])
-        clahe_applied_image = cv2.cvtColor(l_a_b_merged, cv2.COLOR_LAB2BGR)
+            # Posição: canto inferior direito com padding
+            padding = 20
+            x = base_width - watermark.width - padding
+            y = base_height - watermark.height - padding
 
-        # 3. Melhoria de Nitidez (Unsharp Masking aprimorada)
-        # Cria uma versão borrada da imagem processada pelo CLAHE
-        blurred = cv2.GaussianBlur(clahe_applied_image, (0, 0), 5) # Aumentamos sigmaX para 5
-        # Subtrai a imagem borrada da original (denoised e CLAHE) para obter os detalhes de alta frequência
-        # Adiciona de volta com um peso maior para realçar a nitidez
-        sharpened_image = cv2.addWeighted(clahe_applied_image, 1.8, blurred, -0.8, 0) # Ajustamos os pesos (maior nitidez)
+            # Cria uma imagem temporária para colar a marca d'água com transparência
+            temp_image = Image.new('RGBA', base_image_pil.size, (0, 0, 0, 0))
+            temp_image.paste(watermark, (x, y), watermark)
+            
+            # Combina a imagem base com a marca d'água
+            final_image = Image.alpha_composite(base_image_pil.convert('RGBA'), temp_image)
+            return final_image.convert('RGB') # Converte de volta para RGB para salvar como JPG
 
-        # 4. Ajustes Finais de Contraste, Brilho e Saturação (usando PIL ImageEnhance para controle mais fino)
-        # Converte a imagem OpenCV (BGR) de volta para PIL (RGB)
-        final_pil_image = Image.fromarray(cv2.cvtColor(sharpened_image, cv2.COLOR_BGR2RGB))
-        
-        # Aplica ajustes com Pillow ImageEnhance
-        enhancer = ImageEnhance.Brightness(final_pil_image)
-        final_pil_image = enhancer.enhance(1.08) # Aumenta o brilho ligeiramente (ex: 1.05-1.10)
-        
-        enhancer = ImageEnhance.Contrast(final_pil_image)
-        final_pil_image = enhancer.enhance(1.15) # Aumenta o contraste (ex: 1.10-1.20)
-        
-        enhancer = ImageEnhance.Color(final_pil_image)
-        final_pil_image = enhancer.enhance(1.15) # Aumenta a saturação (ex: 1.10-1.20)
-
-        # Opcional: Ajustar equilíbrio de cores (White Balance) pode ser mais complexo e requer detecção
-        # ou ajustes manuais, ou algoritmos de "auto white balance". Para este escopo, os ajustes acima são mais diretos.
-
-        return final_pil_image
+        except Exception as e:
+            print(f"Erro ao aplicar marca d'água de imagem: {e}")
+            messagebox.showwarning("Erro na Marca d'Água", f"Não foi possível aplicar a marca d'água da imagem. Verifique o arquivo PNG.\nErro: {e}")
+            return base_image_pil # Retorna a imagem original se houver erro
 
     def _extract_metadata(self, image_path):
         """Extrai metadados EXIF, GPS e faz geocoding."""
@@ -578,96 +562,22 @@ class PhotoProcessorApp:
         s = float(value[2])
         return d + (m / 60.0) + (s / 3600.0)
 
-    def _apply_watermark(self, image):
-        """Aplica a marca d'água na imagem."""
-        draw = ImageDraw.Draw(image)
-        width, height = image.size
-
-        try:
-            # Tenta carregar a fonte Arial. Se falhar, usa a fonte padrão PIL.
-            font = ImageFont.truetype("arial.ttf", 40)
-        except IOError:
-            font = ImageFont.load_default() # Fallback para fonte padrão
-            print("Aviso: Fonte Arial não encontrada, usando fonte padrão.")
-
-        text_bbox = draw.textbbox((0, 0), WATERMARK_TEXT, font=font)
-        text_width = text_bbox[2] - text_bbox[0]
-        text_height = text_bbox[3] - text_bbox[1]
-        
-        # Posição: canto inferior direito com padding
-        padding = 20
-        x = width - text_width - padding
-        y = height - text_height - padding
-
-        # Desenha a sombra (preta)
-        draw.text((x + 2, y + 2), WATERMARK_TEXT, font=font, fill=(0, 0, 0)) # Desloca 2px para criar sombra
-        # Desenha o texto (branco)
-        draw.text((x, y), WATERMARK_TEXT, font=font, fill=(255, 255, 255))
-
-        return image
-
-    def _create_video_with_zoom(self, pil_image, output_video_path, duration_seconds):
-        """Cria um vídeo com efeito de zoom lento a partir de uma imagem PIL."""
-        width, height = pil_image.size
-        
-        # Define o codec e o objeto VideoWriter
-        fourcc = cv2.VideoWriter_fourcc(*VIDEO_CODEC)
-        out = cv2.VideoWriter(str(output_video_path), fourcc, VIDEO_FPS, (width, height))
-
-        if not out.isOpened():
-            print(f"Erro: Não foi possível abrir o arquivo de vídeo para escrita: {output_video_path}")
-            return
-
-        total_frames = duration_seconds * VIDEO_FPS
-        
-        # Converte a imagem PIL para formato OpenCV (BGR)
-        opencv_image = np.array(pil_image) 
-        opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_RGB2BGR)
-
-        for i in range(total_frames):
-            # Calcula o fator de zoom linear
-            # Começa em 1.0 (0% zoom) e vai até 1.0 + VIDEO_ZOOM_PERCENTAGE
-            zoom_factor = 1.0 + (VIDEO_ZOOM_PERCENTAGE * (i / total_frames))
-            
-            # Calcula as novas dimensões da imagem zoomizada
-            zoomed_width = int(width * zoom_factor)
-            zoomed_height = int(height * zoom_factor)
-
-            # Redimensiona a imagem usando interpolação cúbica para suavidade
-            img_zoomed = cv2.resize(opencv_image, (zoomed_width, zoomed_height), interpolation=cv2.INTER_CUBIC)
-
-            # Calcula o corte para centralizar a imagem no frame original
-            crop_x = (zoomed_width - width) // 2
-            crop_y = (zoomed_height - height) // 2
-            
-            # Garante que o corte não exceda as bordas da imagem zoomizada
-            cropped_frame = img_zoomed[max(0, crop_y):min(zoomed_height, crop_y + height),
-                                       max(0, crop_x):min(zoomed_width, crop_x + width)]
-            
-            # Se o cropped_frame não tiver as dimensões exatas (pode acontecer por arredondamento), redimensiona-o
-            if cropped_frame.shape[0] != height or cropped_frame.shape[1] != width:
-                cropped_frame = cv2.resize(cropped_frame, (width, height), interpolation=cv2.INTER_CUBIC)
-
-            out.write(cropped_frame)
-
-        out.release() # Libera o objeto VideoWriter
-
     def _processing_complete(self):
         """Chamado quando o processamento é concluído."""
         self.progressbar.stop()
         self.progressbar.config(mode="determinate", value=self.total_to_process.get())
         self.processing_status.set(f"Processamento Concluído! {self.processed_count.get()} fotos processadas.")
         
-        # Habilita o botão de download
+        # Habilita o botão de download e o de vídeo demonstrativo
         self.btn_download.config(state="normal")
+        if self.first_processed_image_path: # Só habilita se alguma imagem foi processada
+            self.btn_generate_demo_video.config(state="normal")
         
         # Habilita novamente os botões de controle de UI
         self.btn_process.config(state="normal")
         self.btn_browse.config(state="normal")
-        self.chk_create_videos.config(state="normal")
-        self.chk_apply_watermark.config(state="normal") # Habilita o checkbox da marca d'água
-        self.rb_10s.config(state="normal")
-        self.rb_15s.config(state="normal")
+        self.btn_browse_watermark.config(state="normal")
+        self.chk_apply_watermark.config(state="normal") 
         self.btn_alter_output.config(state="normal")
 
         # Exibe o popup de confirmação
@@ -689,6 +599,44 @@ class PhotoProcessorApp:
                 messagebox.showerror("Erro", f"Não foi possível abrir a pasta:\n{e}")
         else:
             messagebox.showwarning("Aviso", "A pasta de destino não existe.")
+
+    def _generate_demo_video(self):
+        """Gera um vídeo demonstrativo da aplicação da marca d'água."""
+        if not self.first_processed_image_path or not self.first_processed_image_path.exists():
+            messagebox.showwarning("Aviso", "Nenhuma imagem processada disponível para gerar o vídeo demonstrativo. Por favor, processe algumas fotos primeiro.")
+            return
+        
+        output_dir = self.output_folder.get()
+        demo_video_path = Path(output_dir) / "FT TRATADAS 2025" / "video_demonstrativo_marca_dagua.mp4"
+
+        try:
+            # Carrega a primeira imagem processada
+            img_pil = Image.open(self.first_processed_image_path)
+            
+            width, height = img_pil.size
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v') # Codec para MP4
+            out = cv2.VideoWriter(str(demo_video_path), fourcc, VIDEO_FPS, (width, height))
+
+            if not out.isOpened():
+                messagebox.showerror("Erro de Vídeo", "Não foi possível criar o arquivo de vídeo. Verifique as permissões ou o codec.")
+                return
+
+            # Converte a imagem PIL para formato OpenCV (BGR)
+            opencv_image = np.array(img_pil) 
+            opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_RGB2BGR)
+
+            # Adiciona frames estáticos da imagem processada
+            num_frames = DEMO_VIDEO_DURATION_SECONDS * VIDEO_FPS
+            for _ in range(num_frames):
+                out.write(opencv_image)
+
+            out.release()
+            messagebox.showinfo("Vídeo Gerado", f"Vídeo demonstrativo salvo em:\n{demo_video_path}")
+
+        except Exception as e:
+            messagebox.showerror("Erro ao Gerar Vídeo", f"Ocorreu um erro ao gerar o vídeo demonstrativo:\n{e}")
+            print(f"Erro ao gerar vídeo demonstrativo: {e}")
+
 
 # --- Execução da Aplicação ---
 if __name__ == "__main__":
